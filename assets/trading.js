@@ -332,7 +332,9 @@ function initCharts() {
     autoscaleInfoProvider: ladderAutoscale,  // ladderView 非空时强制价格轴=视窗,梯与K线共此范围
   });
   volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
-  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  // 量价分离:价(及其叠加线)占上 ~74%,成交量独占底部带,中间留 6% 间隙互不重叠
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.06, bottom: 0.26 } });
   // 标签默认隐藏(不占右轴),改为 hover 到线附近时浮出名称(见 initHoverLegend)
   ema9L = chart.addLineSeries({ color: "#60a5fa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   ema21L = chart.addLineSeries({ color: "#c084fc", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
@@ -434,8 +436,16 @@ function initHoverLegend() {
       const y = l.series.priceToCoordinate(v);
       if (y != null && Math.abs(y - cy) <= HIT) hits.push({ name: `AVWAP ${avwapAnchorLabel(l.ts)}`, color: l.color, v });
     }
+    // 成交量(股数):hover 到底部量带时,显示当根 bar 的具体成交量 + 成交额(≈ 量×现价)
+    const vd = param.seriesData.get(volume);
+    const H = $("chart").clientHeight || 0;
+    if (vd && vd.value != null && H && cy >= H * 0.78) {
+      const cd = param.seriesData.get(candles);
+      const px = cd && (cd.close ?? cd.value);
+      hits.push({ name: "成交量(股)", color: "#8b96ad", v: vd.value, isVol: true, dv: px != null ? vd.value * px : null });
+    }
     if (!hits.length) { el.style.display = "none"; return; }
-    el.innerHTML = hits.map((h) => `<span style="color:${h.color}">● ${esc(h.name)} ${h.v.toFixed(2)}</span>`).join("<br>");
+    el.innerHTML = hits.map((h) => `<span style="color:${h.color}">● ${esc(h.name)} ${h.isVol ? Math.round(h.v).toLocaleString() + (h.dv != null ? ` · 成交额 ≈ ${fmtMoney(h.dv)}` : "") : h.v.toFixed(2)}</span>`).join("<br>");
     el.style.display = "block";
     const w = $("chart").clientWidth;
     el.style.left = Math.min(param.point.x + 14, w - 130) + "px";
