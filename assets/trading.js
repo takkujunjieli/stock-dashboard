@@ -34,7 +34,7 @@ function expLabel(exp, dte) {
   const z = dte === 0 ? " 0DTE" : "";
   return { chip: `${md} ${wd}${z}`, full: `${md} 周${wd}${z}` };
 }
-let chart, candles, volume, ema9L, ema21L, vwapL, bbU, bbL, vsU, vsL, subChart, gexLine;
+let chart, candles, volume, turnover, ema9L, ema21L, vwapL, bbU, bbL, vsU, vsL, subChart, gexLine;
 let indSub, atrL, pdiL, mdiL, adxL;  // 指标副图(ATR / DMI-ADX,与价格不同量纲,单独一栏)
 let overlayOn = JSON.parse(localStorage.getItem("wbOverlays") || "null")
   || { ema9: true, ema21: true, vwap: true, bb: false, vsig: false, atr: false, adx: false };  // 默认只开 EMA/VWAP,其余按需勾
@@ -332,9 +332,11 @@ function initCharts() {
     autoscaleInfoProvider: ladderAutoscale,  // ladderView 非空时强制价格轴=视窗,梯与K线共此范围
   });
   volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
-  // 量价分离:价(及其叠加线)占上 ~74%,成交量独占底部带,中间留 6% 间隙互不重叠
-  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-  chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.06, bottom: 0.26 } });
+  turnover = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "turnover" });  // 成交额(≈量×价)
+  // 三段:价占上 ~72%,成交额一带叠在成交量上方,成交量在最底(各留间隙互不重叠)
+  chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.06, bottom: 0.28 } });      // 价 6–72%
+  chart.priceScale("turnover").applyOptions({ scaleMargins: { top: 0.74, bottom: 0.135 } });  // 成交额 74–86.5%
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.87, bottom: 0 } });           // 成交量 87–100%
   // 标签默认隐藏(不占右轴),改为 hover 到线附近时浮出名称(见 initHoverLegend)
   ema9L = chart.addLineSeries({ color: "#60a5fa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   ema21L = chart.addLineSeries({ color: "#c084fc", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
@@ -436,13 +438,12 @@ function initHoverLegend() {
       const y = l.series.priceToCoordinate(v);
       if (y != null && Math.abs(y - cy) <= HIT) hits.push({ name: `AVWAP ${avwapAnchorLabel(l.ts)}`, color: l.color, v });
     }
-    // 成交量(股数):hover 到底部量带时,显示当根 bar 的具体成交量 + 成交额(≈ 量×现价)
+    // 成交量/成交额:hover 到底部两带(成交额 74–86% / 成交量 87–100%)时,显示当根 bar 数额
     const vd = param.seriesData.get(volume);
     const H = $("chart").clientHeight || 0;
-    if (vd && vd.value != null && H && cy >= H * 0.78) {
-      const cd = param.seriesData.get(candles);
-      const px = cd && (cd.close ?? cd.value);
-      hits.push({ name: "成交量(股)", color: "#8b96ad", v: vd.value, isVol: true, dv: px != null ? vd.value * px : null });
+    if (vd && vd.value != null && H && cy >= H * 0.72) {
+      const td = param.seriesData.get(turnover);
+      hits.push({ name: "成交量(股)", color: "#8b96ad", v: vd.value, isVol: true, dv: td && td.value != null ? td.value : null });
     }
     if (!hits.length) { el.style.display = "none"; return; }
     el.innerHTML = hits.map((h) => `<span style="color:${h.color}">● ${esc(h.name)} ${h.isVol ? Math.round(h.v).toLocaleString() + (h.dv != null ? ` · 成交额 ≈ ${fmtMoney(h.dv)}` : "") : h.v.toFixed(2)}</span>`).join("<br>");
@@ -461,6 +462,7 @@ function renderChart() {
   const t = (b) => daily ? etDay(b[0]) : tconv(b[0]);
   candles.setData(bars.map((b) => ({ time: t(b), open: b[1], high: b[2], low: b[3], close: b[4] })));
   volume.setData(bars.map((b) => ({ time: t(b), value: b[5], color: b[4] >= b[1] ? "#34d39955" : "#f8717155" })));
+  turnover.setData(bars.map((b) => ({ time: t(b), value: b[5] * b[4], color: "#fbbf24aa" })));  // 成交额 ≈ 量×收盘,单色琥珀区别于量
   const closes = bars.map((b) => b[4]);
   const line = (vals) => vals.map((v, i) => v == null ? null : ({ time: t(bars[i]), value: v })).filter(Boolean);
   ema9L.setData(line(ema(closes, 9)));
