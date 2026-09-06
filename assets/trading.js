@@ -462,7 +462,8 @@ function renderChart() {
   const t = (b) => daily ? etDay(b[0]) : tconv(b[0]);
   candles.setData(bars.map((b) => ({ time: t(b), open: b[1], high: b[2], low: b[3], close: b[4] })));
   volume.setData(bars.map((b) => ({ time: t(b), value: b[5], color: b[4] >= b[1] ? "#34d39955" : "#f8717155" })));
-  turnover.setData(bars.map((b) => ({ time: t(b), value: b[5] * b[4], color: "#fbbf24aa" })));  // 成交额 ≈ 量×收盘,单色琥珀区别于量
+  // 成交额 = 量 × 每根 bar 均价(与 VWAP 同源:优先 b[6]=bar VWAP,回退典型价 (H+L+C)/3),= 该 bar 实际成交金额
+  turnover.setData(bars.map((b) => ({ time: t(b), value: b[5] * (b[6] || (b[2] + b[3] + b[4]) / 3), color: "#fbbf24aa" })));
   const closes = bars.map((b) => b[4]);
   const line = (vals) => vals.map((v, i) => v == null ? null : ({ time: t(bars[i]), value: v })).filter(Boolean);
   ema9L.setData(line(ema(closes, 9)));
