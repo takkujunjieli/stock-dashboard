@@ -34,7 +34,8 @@
     "SNOW",
     "ASTS",
     "MRVL",
-    "AVGO"
+    "AVGO",
+    "MSTR"
   ],
   "deep": [
     "AMD",
@@ -70,6 +71,7 @@
     "SNOW",
     "ASTS",
     "MRVL",
-    "AVGO"
+    "AVGO",
+    "MSTR"
   ]
 }
