@@ -44,6 +44,7 @@ let avwapCtx = null;   // 当前 {bars, t},供点击锚定映射
 let avwapAdd = localStorage.getItem("wbAvwapAdd") === "1";           // 点击锚定模式开关
 let avwapAnchors = JSON.parse(localStorage.getItem("wbAvwap") || "{}");  // {sym:[epoch,...]} 按票持久
 let showETH = localStorage.getItem("wbShowETH") === "1";  // 分时图默认只画 RTH;开则含盘前盘后
+let volMode = localStorage.getItem("wbVolMode") || "vol";  // 底部量带:vol=成交量(股) / turnover=成交额($),二选一
 let hoverLevels = [];       // flip / MaxPain 横线的 {name,color,price},供 hover 识别
 let hoverSeries = [];       // 叠加曲线的 {series,name,color},供 hover 识别
 let priceLines = [];
@@ -332,11 +333,12 @@ function initCharts() {
     autoscaleInfoProvider: ladderAutoscale,  // ladderView 非空时强制价格轴=视窗,梯与K线共此范围
   });
   volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
-  turnover = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "turnover" });  // 成交额(≈量×价)
-  // 三段:价占上 ~72%,成交额一带叠在成交量上方,成交量在最底(各留间隙互不重叠)
-  chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.06, bottom: 0.28 } });      // 价 6–72%
-  chart.priceScale("turnover").applyOptions({ scaleMargins: { top: 0.74, bottom: 0.135 } });  // 成交额 74–86.5%
-  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.87, bottom: 0 } });           // 成交量 87–100%
+  turnover = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "turnover" });  // 成交额(≈量×bar均价)
+  // 量价分离:价占上 ~74%,底部量带;成交量/成交额同占该带,由 toggle 二选一显示
+  chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.06, bottom: 0.24 } });
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  chart.priceScale("turnover").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  applyVolMode();  // 按 volMode 显隐 成交量/成交额
   // 标签默认隐藏(不占右轴),改为 hover 到线附近时浮出名称(见 initHoverLegend)
   ema9L = chart.addLineSeries({ color: "#60a5fa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
   ema21L = chart.addLineSeries({ color: "#c084fc", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
@@ -411,6 +413,14 @@ function renderOverlayChips() {
     `<button data-ov="${o.key}" class="${overlayOn[o.key] !== false ? "active" : ""}">${o.label}</button>`).join("");
 }
 
+/* 底部量带二选一:成交量(股) / 成交额($)。切换只改可见性,不重画数据。 */
+function applyVolMode() {
+  if (volume) volume.applyOptions({ visible: volMode === "vol" });
+  if (turnover) turnover.applyOptions({ visible: volMode === "turnover" });
+  const box = $("volmode-chips");
+  if (box) [...box.children].forEach((b) => b.classList.toggle("active", b.dataset.vm === volMode));
+}
+
 /* hover 到某条线附近(纵向 ≤7px)才浮出它的名称+数值;不占右轴、默认隐藏 */
 function initHoverLegend() {
   const HIT = 7;  // 命中容差(像素)
@@ -438,15 +448,19 @@ function initHoverLegend() {
       const y = l.series.priceToCoordinate(v);
       if (y != null && Math.abs(y - cy) <= HIT) hits.push({ name: `AVWAP ${avwapAnchorLabel(l.ts)}`, color: l.color, v });
     }
-    // 成交量/成交额:hover 到底部两带(成交额 74–86% / 成交量 87–100%)时,显示当根 bar 数额
-    const vd = param.seriesData.get(volume);
+    // 底部量带(成交量/成交额,二选一)hover:只显示当前模式对应数额
     const H = $("chart").clientHeight || 0;
-    if (vd && vd.value != null && H && cy >= H * 0.72) {
-      const td = param.seriesData.get(turnover);
-      hits.push({ name: "成交量(股)", color: "#8b96ad", v: vd.value, isVol: true, dv: td && td.value != null ? td.value : null });
+    if (H && cy >= H * 0.78) {
+      if (volMode === "turnover") {
+        const td = param.seriesData.get(turnover);
+        if (td && td.value != null) hits.push({ name: "成交额", color: "#fbbf24", v: td.value, isMoney: true });
+      } else {
+        const vd = param.seriesData.get(volume);
+        if (vd && vd.value != null) hits.push({ name: "成交量(股)", color: "#8b96ad", v: vd.value, isVol: true });
+      }
     }
     if (!hits.length) { el.style.display = "none"; return; }
-    el.innerHTML = hits.map((h) => `<span style="color:${h.color}">● ${esc(h.name)} ${h.isVol ? Math.round(h.v).toLocaleString() + (h.dv != null ? ` · 成交额 ≈ ${fmtMoney(h.dv)}` : "") : h.v.toFixed(2)}</span>`).join("<br>");
+    el.innerHTML = hits.map((h) => `<span style="color:${h.color}">● ${esc(h.name)} ${h.isVol ? Math.round(h.v).toLocaleString() : h.isMoney ? fmtMoney(h.v) : h.v.toFixed(2)}</span>`).join("<br>");
     el.style.display = "block";
     const w = $("chart").clientWidth;
     el.style.left = Math.min(param.point.x + 14, w - 130) + "px";
@@ -1575,6 +1589,14 @@ function initToolbar() {
     localStorage.setItem("wbShowETH", showETH ? "1" : "0");
     [...$("session-chips").children].forEach((b) => b.classList.toggle("active", b === btn));
     renderChart();
+  });
+  // 底部量带:成交量 / 成交额 二选一(?. 防旧缓存 HTML 无此元素时报错)
+  $("volmode-chips")?.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button");
+    if (!btn) return;
+    volMode = btn.dataset.vm;
+    localStorage.setItem("wbVolMode", volMode);
+    applyVolMode();
   });
   // 本周历史 GEX 快照:选某日看当日墙(当周到期);data-day="" = Live/最新
   $("gex-week-chips").addEventListener("click", (ev) => {
